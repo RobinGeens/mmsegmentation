@@ -167,13 +167,17 @@ class Simba(BaseModule):
     # Weight init
     # ------------------------------------------------------------------
     def init_weights(self):
-        if self.init_cfg is None:
+        # Skip the backbone-only pretrain load when there's no checkpoint to
+        # load. This covers two cases: (1) init_cfg is unset, and (2) init_cfg
+        # is present but checkpoint is None — e.g. stage-2 continuation where
+        # the top-level `load_from` provides the full model weights and any
+        # backbone-only init would be immediately overwritten.
+        ckpt_path = (self.init_cfg or {}).get("checkpoint")
+        if not ckpt_path:
             print_log(
                 f"No pre-trained weights for {self.__class__.__name__}, " f"training from scratch", logger="current"
             )
             return
-        assert "checkpoint" in self.init_cfg, "init_cfg for Simba must specify 'checkpoint'"
-        ckpt_path = self.init_cfg["checkpoint"]
         ckpt = CheckpointLoader.load_checkpoint(ckpt_path, logger="current", map_location="cpu")
 
         if "state_dict" in ckpt:

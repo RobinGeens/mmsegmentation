@@ -3,8 +3,23 @@ import argparse
 import os
 import os.path as osp
 
+import torch
+
 from mmengine.config import Config, DictAction
 from mmengine.runner import Runner
+
+# PyTorch 2.6 made torch.load default to weights_only=True, which rejects
+# mmengine training checkpoints (they contain HistoryBuffer, etc.). Our
+# checkpoints are locally produced and trusted — restore the old default.
+_orig_torch_load = torch.load
+
+
+def _torch_load_compat(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+
+
+torch.load = _torch_load_compat
 
 
 # TODO: support fuse_conv_bn, visualization, and format_only

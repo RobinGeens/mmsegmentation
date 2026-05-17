@@ -19,6 +19,11 @@ model = dict(
         autocast_dtype="bf16",
     ),
     decode_head=dict(in_channels=[96, 192, 384, 512], num_classes=19),
+    # Slide eval: whole-image inference would feed stage 1 a 512x256=131072
+    # token sequence, which has no DFT_PARTITIONS entry and degenerates to an
+    # L=1 partitioning (262144x262144 real DFT matrix -> OOM). Sliding at the
+    # training crop keeps every per-window N matched to a partition entry.
+    test_cfg=dict(mode="slide", crop_size=crop_size, stride=(384, 768)),
 )
 
 # AdamW with linear-warmup poly schedule, decoder LR > backbone LR. The

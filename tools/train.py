@@ -12,6 +12,19 @@ from mmengine.runner import Runner
 
 from mmseg.registry import RUNNERS
 
+# PyTorch 2.6 made torch.load default to weights_only=True, which rejects
+# mmengine training checkpoints (they contain HistoryBuffer, etc.). Our
+# checkpoints are locally produced and trusted — restore the old default.
+_orig_torch_load = torch.load
+
+
+def _torch_load_compat(*args, **kwargs):
+    kwargs.setdefault("weights_only", False)
+    return _orig_torch_load(*args, **kwargs)
+
+
+torch.load = _torch_load_compat
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Train a segmentor")
