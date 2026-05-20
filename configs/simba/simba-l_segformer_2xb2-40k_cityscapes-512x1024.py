@@ -59,8 +59,8 @@ param_scheduler = [
 ]
 
 # Single-GPU Cityscapes train.
-train_dataloader = dict(batch_size=4, num_workers=4)
-val_dataloader = dict(batch_size=1, num_workers=2)
+train_dataloader = dict(batch_size=4, num_workers=20)
+val_dataloader = dict(batch_size=1, num_workers=20)
 test_dataloader = val_dataloader
 
 # wandb logging. Override the run name / project via env vars in run_simba.sh

@@ -1,21 +1,12 @@
 #!/usr/bin/env bash
-# Train / evaluate SegFormer + Simba-L on Cityscapes
+# Train / evaluate SegFormer + Simba-L on Cityscapes.
 #
 # Usage:
-#   ./run_simba.sh prepare              # one-time: convert Simba checkpoint
-#   ./run_simba.sh smoke                # forward pass on synthetic data (no dataset needed)
-#   ./run_simba.sh train                # finetune
-#   ./run_simba.sh resume [CHECKPOINT]  # resume training (latest in work_dir, or given path)
-#   ./run_simba.sh eval   [CHECKPOINT]  # evaluate
-#
-# Two init modes for `train`, toggled by LOAD_FROM:
-#   Stage-1 (LOAD_FROM=""): start from the converted Simba backbone pretrain.
-#       Decoder is random. Run `prepare` once to produce the mmseg-shaped
-#       backbone .pth from the upstream Simba checkpoint.
-#   Stage-2 (LOAD_FROM=<ckpt>): start from a full mmseg checkpoint (backbone
-#       + decoder) of a prior run. Optimizer + scheduler are NOT restored
-#       (use the `resume` action for that). SIMBA_CKPT_NAME / PRETRAIN_NAME
-#       are unused in this mode.
+#   ./run_simba.sh prepare       one-time: convert upstream Simba ckpt -> mmseg backbone .pth
+#   ./run_simba.sh smoke         forward pass on synthetic input (no dataset)
+#   ./run_simba.sh train         train; init source picked by $MODE (see config block)
+#   ./run_simba.sh resume        shorthand for MODE=continue
+#   ./run_simba.sh eval [CKPT]   evaluate (default: latest ckpt in this config's work_dir)
 
 set -euo pipefail
 
@@ -26,11 +17,26 @@ GPU=0
 TRAIN_CONFIG="simba-l_segformer_2xb2-120k_cityscapes-512x1024.py"
 RUN_NAME="simba-l_segformer_120k_cityscapes-512x1024"
 
-# Stage selector. Leave empty for stage-1 (backbone pretrain); set to a
-# checkpoint path for stage-2 continuation from a prior run.
-LOAD_FROM="work_dirs/simba-l_segformer_2xb2-40k_cityscapes-512x1024/iter_40000.pth"
+# How to start training. Pick exactly one:
+#
+#   backbone — Init backbone from the converted Simba pretrain; segmentation
+#              head is random. Optimizer + scheduler start fresh at iter 0.
+#
+#   seed     — Init the full model (backbone + head) from a prior mmseg
+#              checkpoint at SEED_CKPT. Optimizer + scheduler start fresh
+#              at iter 0. Writes to *this* config's work_dir, not SEED_CKPT's.
+#              Use this to bridge between two configs (e.g. extend a 40k
+#              schedule with a fresh 120k schedule).
+#
+#   continue — Resume the latest checkpoint inside this config's own
+#              work_dir, restoring optimizer + scheduler + iter counter.
+#              Automatically discovers the latest checkpoint in work_dir.
 
-# Stage-1 only: upstream Simba checkpoint -> mmseg-shaped backbone .pth.
+MODE="continue"
+
+# Used only when MODE=seed.
+SEED_CKPT="work_dirs/simba-l_segformer_2xb2-40k_cityscapes-512x1024/iter_40000.pth"
+# Used only when MODE=backbone
 SIMBA_CKPT_NAME="exp_approx/checkpoint-317.pth.tar"
 PRETRAIN_NAME="exp_approx_317_backbone.pth"
 
@@ -44,40 +50,52 @@ PYTHON="${PYTHON:-$SIMBA_REPO/env/bin/python}"
 CONFIG="${CONFIG:-configs/simba/$TRAIN_CONFIG}"
 SIMBA_CKPT="${SIMBA_CKPT:-"$SIMBA_REPO/checkpoints/$SIMBA_CKPT_NAME"}"
 PRETRAIN="${PRETRAIN:-pretrain/$PRETRAIN_NAME}"
+WORK_DIR="work_dirs/$(basename "$CONFIG" .py)"
 export SIMBA_PRETRAIN="$PRETRAIN"
-
-# Build the --cfg-options array for train/eval:
-#   Stage-1: inject the backbone-only pretrain via model.backbone.init_cfg.
-#   Stage-2: set load_from to the full prior-run checkpoint. The backbone
-#            init_cfg is irrelevant — load_from overwrites those weights.
-if [ -n "${LOAD_FROM:-}" ]; then
-    SIMBA_CFG_OPTS=(--cfg-options "load_from=$LOAD_FROM")
-    STAGE_DESC="stage-2 continuation from $LOAD_FROM"
-else
-    SIMBA_CFG_OPTS=(--cfg-options "model.backbone.init_cfg.checkpoint=$PRETRAIN")
-    STAGE_DESC="stage-1 from backbone pretrain $PRETRAIN"
-fi
-echo "[init] $STAGE_DESC"
 
 export CUDA_VISIBLE_DEVICES="$GPU"
 echo "[GPU] CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
 
-# wandb knobs
 export WANDB_PROJECT="${WANDB_PROJECT:-simba-cityscapes}"
 export WANDB_MODE="${WANDB_MODE:-online}"
 export WANDB_RUN_NAME="$RUN_NAME"
 echo "[wandb] project=$WANDB_PROJECT mode=$WANDB_MODE run=$WANDB_RUN_NAME"
 
-# In stage-1 the backbone pretrain must exist on disk; auto-run `prepare`
-# if it doesn't. Stage-2 ignores PRETRAIN entirely.
 ensure_pretrain() {
-    if [ -n "${LOAD_FROM:-}" ]; then
-        return 0
-    fi
     if [ ! -f "$PRETRAIN" ]; then
         echo "Pretrain not found at $PRETRAIN — running 'prepare' first."
         "$0" prepare
     fi
+}
+
+do_train() {
+    case "$MODE" in
+        backbone)
+            ensure_pretrain
+            echo "[train:backbone] backbone <- $PRETRAIN  (head random, optim fresh, work_dir=$WORK_DIR)"
+            "$PYTHON" tools/train.py "$CONFIG" \
+                --cfg-options "model.backbone.init_cfg.checkpoint=$PRETRAIN" "$@"
+            ;;
+        seed)
+            if [ ! -f "$SEED_CKPT" ]; then
+                echo "MODE=seed but SEED_CKPT does not exist: $SEED_CKPT" >&2
+                exit 1
+            fi
+            echo "[train:seed] model <- $SEED_CKPT  (optim fresh, work_dir=$WORK_DIR)"
+            "$PYTHON" tools/train.py "$CONFIG" \
+                --cfg-options "load_from=$SEED_CKPT" "$@"
+            ;;
+        continue)
+            # No --cfg-options: with load_from unset, mmengine auto-discovers
+            # work_dir/last_checkpoint. Setting load_from would override that.
+            echo "[train:continue] auto-resume latest ckpt in $WORK_DIR"
+            "$PYTHON" tools/train.py "$CONFIG" --resume "$@"
+            ;;
+        *)
+            echo "Unknown MODE: '$MODE' (expected: backbone | seed | continue)" >&2
+            exit 1
+            ;;
+    esac
 }
 
 cmd="${1:-}"
@@ -91,65 +109,47 @@ case "$cmd" in
         ;;
 
     smoke)
-        echo "[smoke] forward pass on synthetic 512x1024 input (no dataset)"
+        echo "[smoke] forward pass on synthetic 512x1024 input"
         ensure_pretrain
         "$PYTHON" tools/smoke_test_simba.py "$CONFIG" "$PRETRAIN"
         ;;
 
     train)
-        echo "[train] config=$CONFIG"
-        ensure_pretrain
-        "$PYTHON" tools/train.py "$CONFIG" "${SIMBA_CFG_OPTS[@]}" "$@"
+        do_train "$@"
         ;;
 
     resume)
-        # Resume from the latest checkpoint in work_dirs/<config>/.
-        # Optional: pass an explicit checkpoint path as the first arg.
-        # Note: --resume restores model + optimizer + scheduler + iter
-        # counter from the checkpoint, so the stage-1/stage-2 init above is
-        # effectively a no-op here (the resume ckpt wins).
-        ckpt="${1:-}"
-        work_dir="work_dirs/$(basename "$CONFIG" .py)"
-        if [ -z "$ckpt" ]; then
-            echo "[resume] auto-resuming from latest checkpoint in $work_dir"
-            "$PYTHON" tools/train.py "$CONFIG" "${SIMBA_CFG_OPTS[@]}" --resume
-        else
-            echo "[resume] resuming from $ckpt"
-            "$PYTHON" tools/train.py "$CONFIG" "${SIMBA_CFG_OPTS[@]}" \
-                --cfg-options "load_from=$ckpt" "resume=True"
-        fi
+        MODE=continue
+        do_train "$@"
         ;;
 
     eval)
         ckpt="${1:-}"
         if [ -z "$ckpt" ]; then
-            # Default 1: latest iter checkpoint inside the work_dir.
-            work_dir="work_dirs/$(basename "$CONFIG" .py)"
-            ckpt="$(ls -1 "$work_dir"/iter_*.pth 2>/dev/null | sort -V | tail -1 || true)"
+            ckpt="$(ls -1 "$WORK_DIR"/iter_*.pth 2>/dev/null | sort -V | tail -1 || true)"
             if [ -n "$ckpt" ]; then
-                echo "[eval] no checkpoint passed -> latest in work_dir: $ckpt"
+                echo "[eval] no ckpt passed -> latest in work_dir: $ckpt"
             elif [ -f "$PRETRAIN" ]; then
-                # Default 2: the converted Simba backbone (random decoder, sanity check).
                 ckpt="$PRETRAIN"
-                echo "[eval] no checkpoint passed and no work_dir ckpt -> $ckpt"
+                echo "[eval] no work_dir ckpt -> falling back to backbone pretrain: $ckpt"
             else
-                echo "No checkpoint provided, none in $work_dir, and $PRETRAIN missing."
-                echo "Run '$0 prepare' or pass an explicit checkpoint path."
+                echo "No checkpoint provided, none in $WORK_DIR, and $PRETRAIN missing." >&2
+                echo "Run '$0 prepare' or pass an explicit checkpoint path." >&2
                 exit 1
             fi
         fi
         echo "[eval] config=$CONFIG  ckpt=$ckpt"
-        "$PYTHON" tools/test.py "$CONFIG" "$ckpt" "${SIMBA_CFG_OPTS[@]}"
+        "$PYTHON" tools/test.py "$CONFIG" "$ckpt"
         ;;
 
     *)
         echo "Usage: $0 {prepare|smoke|train|resume|eval} [args...]"
         echo
-        echo "  prepare               convert ../simba checkpoint -> $PRETRAIN"
+        echo "  prepare               convert upstream Simba ckpt -> $PRETRAIN"
         echo "  smoke                 forward pass on synthetic input (no dataset)"
-        echo "  train                 finetune SegFormer+Simba on Cityscapes"
-        echo "  resume [CHECKPOINT]   resume training (default: latest in work_dirs/)"
-        echo "  eval   [CHECKPOINT]   evaluate (default: latest in work_dirs/)"
+        echo "  train                 train; init source picked by \$MODE (currently: $MODE)"
+        echo "  resume                shorthand for MODE=continue"
+        echo "  eval [CHECKPOINT]     evaluate (default: latest in $WORK_DIR)"
         exit 1
         ;;
 esac
