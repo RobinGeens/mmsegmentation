@@ -12,7 +12,11 @@ set -euo pipefail
 
 # --- Config ---
 
-GPU=0
+# Comma-separated GPU ids. Multi-GPU launches via torch.distributed. Per-GPU
+# batch size lives in the config (train_dataloader.batch_size); changing the
+# GPU count here without revisiting that will change effective batch size.
+GPUS="0,1,2,3"
+NUM_GPUS=$(awk -F',' '{print NF}' <<< "$GPUS")
 
 TRAIN_CONFIG="simba-l_segformer_2xb2-120k_cityscapes-512x1024.py"
 RUN_NAME="simba-l_segformer_120k_cityscapes-512x1024"
@@ -31,7 +35,6 @@ RUN_NAME="simba-l_segformer_120k_cityscapes-512x1024"
 #   continue — Resume the latest checkpoint inside this config's own
 #              work_dir, restoring optimizer + scheduler + iter counter.
 #              Automatically discovers the latest checkpoint in work_dir.
-
 MODE="continue"
 
 # Used only when MODE=seed.
@@ -53,8 +56,19 @@ PRETRAIN="${PRETRAIN:-pretrain/$PRETRAIN_NAME}"
 WORK_DIR="work_dirs/$(basename "$CONFIG" .py)"
 export SIMBA_PRETRAIN="$PRETRAIN"
 
-export CUDA_VISIBLE_DEVICES="$GPU"
-echo "[GPU] CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES"
+export CUDA_VISIBLE_DEVICES="$GPUS"
+echo "[GPU] CUDA_VISIBLE_DEVICES=$CUDA_VISIBLE_DEVICES (n=$NUM_GPUS)"
+
+# Build the train launch prefix. Distributed launch when NUM_GPUS>1, plain
+# python otherwise. Per-mode --cfg-options are appended downstream.
+if [ "$NUM_GPUS" -gt 1 ]; then
+    LAUNCH=("$PYTHON" -m torch.distributed.launch
+            --nnodes=1 --nproc_per_node="$NUM_GPUS"
+            --master_port="${PORT:-29500}"
+            tools/train.py "$CONFIG" --launcher pytorch)
+else
+    LAUNCH=("$PYTHON" tools/train.py "$CONFIG")
+fi
 
 export WANDB_PROJECT="${WANDB_PROJECT:-simba-cityscapes}"
 export WANDB_MODE="${WANDB_MODE:-online}"
@@ -73,7 +87,7 @@ do_train() {
         backbone)
             ensure_pretrain
             echo "[train:backbone] backbone <- $PRETRAIN  (head random, optim fresh, work_dir=$WORK_DIR)"
-            "$PYTHON" tools/train.py "$CONFIG" \
+            "${LAUNCH[@]}" \
                 --cfg-options "model.backbone.init_cfg.checkpoint=$PRETRAIN" "$@"
             ;;
         seed)
@@ -82,14 +96,14 @@ do_train() {
                 exit 1
             fi
             echo "[train:seed] model <- $SEED_CKPT  (optim fresh, work_dir=$WORK_DIR)"
-            "$PYTHON" tools/train.py "$CONFIG" \
+            "${LAUNCH[@]}" \
                 --cfg-options "load_from=$SEED_CKPT" "$@"
             ;;
         continue)
             # No --cfg-options: with load_from unset, mmengine auto-discovers
             # work_dir/last_checkpoint. Setting load_from would override that.
             echo "[train:continue] auto-resume latest ckpt in $WORK_DIR"
-            "$PYTHON" tools/train.py "$CONFIG" --resume "$@"
+            "${LAUNCH[@]}" --resume "$@"
             ;;
         *)
             echo "Unknown MODE: '$MODE' (expected: backbone | seed | continue)" >&2
