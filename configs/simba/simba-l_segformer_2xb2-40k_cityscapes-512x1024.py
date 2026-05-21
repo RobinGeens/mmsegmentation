@@ -70,7 +70,7 @@ import os as _os  # noqa: E402
 vis_backends = [
     dict(type="LocalVisBackend"),
     dict(
-        type="WandbVisBackend",
+        type="IterStepWandbVisBackend",
         init_kwargs=dict(
             project=_os.environ.get("WANDB_PROJECT", "simba-cityscapes"),
             name=_os.environ.get("WANDB_RUN_NAME", "simba-l_segformer_40k_cityscapes-512x1024"),

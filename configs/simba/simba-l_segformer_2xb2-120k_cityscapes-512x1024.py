@@ -11,7 +11,7 @@ optim_wrapper = dict(optimizer=dict(lr=4e-5))
 # Ensure that num_GPU * PER_GPU_BS remains constant.
 _PER_GPU_BS = 1
 _EFFECTIVE_BS = 4  # must match stage-1; changing this requires re-tuning LR/schedule
-train_dataloader = dict(batch_size=_PER_GPU_BS, num_workers=8)
+train_dataloader = dict(batch_size=_PER_GPU_BS, num_workers=8, persistent_workers=True, pin_memory=True)
 
 import os as _os  # noqa: E402
 import sys as _sys  # noqa: E402
@@ -42,7 +42,7 @@ default_hooks = dict(checkpoint=dict(type="CheckpointHook", by_epoch=False, inte
 vis_backends = [
     dict(type="LocalVisBackend"),
     dict(
-        type="WandbVisBackend",
+        type="IterStepWandbVisBackend",
         init_kwargs=dict(
             project=_os.environ.get("WANDB_PROJECT", "simba-cityscapes"),
             name=_os.environ.get(
