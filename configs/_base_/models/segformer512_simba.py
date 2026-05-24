@@ -1,5 +1,3 @@
-# segformer256_simba
-
 norm_cfg = dict(type="BN", requires_grad=True)
 data_preprocessor = dict(
     type="SegDataPreProcessor",
@@ -24,9 +22,9 @@ model = dict(
     ),
     decode_head=dict(
         type="SegformerHead",
-        in_channels=[96, 192, 384, 512],  # From Simba-L
+        in_channels=[96, 192, 384, 512],
         in_index=[0, 1, 2, 3],
-        channels=256,
+        channels=512,
         dropout_ratio=0.1,
         num_classes=19,
         norm_cfg=norm_cfg,

@@ -28,19 +28,22 @@ from mmseg.registry import MODELS
 
 
 def _ensure_simba_on_path(simba_repo: str) -> None:
-    """Prepend ``simba_repo`` (git root) to ``sys.path``.
+    """Prepend ``<simba_repo>/simba`` to ``sys.path``.
 
-    Upstream code imports the inner package as ``simba.*`` (e.g.
-    ``from simba.quantizer_basic import ...``), so the path entry must be
-    the repo root, not ``<simba_repo>/simba``.
+    Upstream ``simba_bf16.py`` uses bare imports of its sibling modules
+    (``from quantizer import ...``, ``from mamba_simple import ...``),
+    so the inner package directory itself must be on ``sys.path``. We do
+    not add the repo root, because it also contains a ``simba/``
+    directory and a ``simba.py`` module that would shadow each other
+    under ``from simba import ...``.
     """
     pkg_dir = os.path.join(simba_repo, "simba")
     if not os.path.isdir(pkg_dir):
         raise FileNotFoundError(
             f"Simba package directory not found: {pkg_dir}. " f"Pass `simba_repo=<path>` to the backbone or symlink it."
         )
-    if simba_repo not in sys.path:
-        sys.path.insert(0, simba_repo)
+    if pkg_dir not in sys.path:
+        sys.path.insert(0, pkg_dir)
 
 
 @MODELS.register_module()
@@ -88,18 +91,18 @@ class Simba(BaseModule):
         simba_repo = os.path.abspath(simba_repo)
         _ensure_simba_on_path(simba_repo)
 
-        from simba import simba_bf16  # noqa: PLC0415 — after sys.path fixup
+        import simba_configs  # noqa: PLC0415 — after sys.path fixup
 
-        if not hasattr(simba_bf16, variant):
+        if not hasattr(simba_configs, variant):
             raise ValueError(
                 f"Unknown Simba variant {variant!r}. Available: "
-                f'{[n for n in dir(simba_bf16) if n.startswith("simba_")]}'
+                f'{[n for n in dir(simba_configs) if n.startswith("simba_")]}'
             )
 
         # The upstream factory returns a SiMBA module configured with the
         # right dtype kwargs. token_label=True adds the post_network/aux_head
         # branch which is irrelevant for segmentation; we strip it below.
-        full_model = getattr(simba_bf16, variant)(
+        full_model = getattr(simba_configs, variant)(
             pretrained=False,
             num_classes=0,
             drop_path_rate=drop_path_rate,

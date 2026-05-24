@@ -9,7 +9,7 @@ optim_wrapper = dict(optimizer=dict(lr=4e-5))
 
 # The effective batch size determines the learning schedule and must be fixed for the whole run.
 # Ensure that num_GPU * PER_GPU_BS remains constant.
-_PER_GPU_BS = 1
+_PER_GPU_BS = 2
 _EFFECTIVE_BS = 4  # must match stage-1; changing this requires re-tuning LR/schedule
 train_dataloader = dict(batch_size=_PER_GPU_BS, num_workers=8, persistent_workers=True, pin_memory=True)
 

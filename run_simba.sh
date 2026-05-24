@@ -18,27 +18,25 @@ set -euo pipefail
 GPUS="0,1,2,3"
 NUM_GPUS=$(awk -F',' '{print NF}' <<< "$GPUS")
 
-TRAIN_CONFIG="simba-l_segformer_2xb2-120k_cityscapes-512x1024.py"
-RUN_NAME="simba-l_segformer_120k_cityscapes-512x1024"
+TRAIN_CONFIG="simba-l_segformer512_4xb2-40k_cityscapes-512x1024.py"
+RUN_NAME="simba-l_segformer512_4xb2-40k_cityscapes-512x1024"
 
 # How to start training. Pick exactly one:
 #
 #   backbone — Init backbone from the converted Simba pretrain; segmentation
 #              head is random. Optimizer + scheduler start fresh at iter 0.
 #
-#   seed     — Init the full model (backbone + head) from a prior mmseg
-#              checkpoint at SEED_CKPT. Optimizer + scheduler start fresh
-#              at iter 0. Writes to *this* config's work_dir, not SEED_CKPT's.
-#              Use this to bridge between two configs (e.g. extend a 40k
-#              schedule with a fresh 120k schedule).
+#   seed     — Init the full model (backbone + head) from a prior mmseg checkpoint at SEED_CKPT. 
+#              Optimizer + scheduler start fresh at iter 0. Writes to this config's work_dir, not SEED_CKPT's.
+#              Use this to bridge between two configs (e.g. extend a 40k schedule with a fresh 120k schedule).
 #
 #   continue — Resume the latest checkpoint inside this config's own
 #              work_dir, restoring optimizer + scheduler + iter counter.
 #              Automatically discovers the latest checkpoint in work_dir.
-MODE="continue"
+MODE="seed"
 
 # Used only when MODE=seed.
-SEED_CKPT="work_dirs/simba-l_segformer_2xb2-40k_cityscapes-512x1024/iter_40000.pth"
+SEED_CKPT="work_dirs/simba-l_segformer_2xb2-120k_cityscapes-512x1024/iter_52000.pth"
 # Used only when MODE=backbone
 SIMBA_CKPT_NAME="exp_approx/checkpoint-317.pth.tar"
 PRETRAIN_NAME="exp_approx_317_backbone.pth"
