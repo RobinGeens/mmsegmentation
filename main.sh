@@ -18,8 +18,8 @@ set -euo pipefail
 GPUS="0,1,2,3"
 NUM_GPUS=$(awk -F',' '{print NF}' <<< "$GPUS")
 
-TRAIN_CONFIG="simba-l_segformer512_4xb2-40k_cityscapes-512x1024.py"
-RUN_NAME="simba-l_segformer512_4xb2-40k_cityscapes-512x1024"
+TRAIN_CONFIG="simba-l_segformer512_4xb2-120k_cityscapes-512x1024.py"
+RUN_NAME="simba-l_segformer512_4xb2-120k_cityscapes-512x1024"
 
 # How to start training. Pick exactly one:
 #
@@ -36,7 +36,7 @@ RUN_NAME="simba-l_segformer512_4xb2-40k_cityscapes-512x1024"
 MODE="seed"
 
 # Used only when MODE=seed.
-SEED_CKPT="work_dirs/simba-l_segformer_2xb2-120k_cityscapes-512x1024/iter_52000.pth"
+SEED_CKPT="work_dirs/simba-l_segformer512_4xb2-40k_cityscapes-512x1024/iter_40000.pth"
 # Used only when MODE=backbone
 SIMBA_CKPT_NAME="exp_approx/checkpoint-317.pth.tar"
 PRETRAIN_NAME="exp_approx_317_backbone.pth"

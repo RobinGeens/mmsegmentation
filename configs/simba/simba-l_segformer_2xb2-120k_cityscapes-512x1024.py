@@ -38,19 +38,3 @@ param_scheduler = [
 
 train_cfg = dict(type="IterBasedTrainLoop", max_iters=120000, val_interval=4000)
 default_hooks = dict(checkpoint=dict(type="CheckpointHook", by_epoch=False, interval=4000))
-
-vis_backends = [
-    dict(type="LocalVisBackend"),
-    dict(
-        type="IterStepWandbVisBackend",
-        init_kwargs=dict(
-            project=_os.environ.get("WANDB_PROJECT", "simba-cityscapes"),
-            name=_os.environ.get(
-                "WANDB_RUN_NAME",
-                "simba-l_segformer_120k-continue_cityscapes-512x1024",
-            ),
-            tags=["simba", "segformer", "cityscapes", "continue"],
-        ),
-    ),
-]
-visualizer = dict(type="SegLocalVisualizer", vis_backends=vis_backends, name="visualizer")

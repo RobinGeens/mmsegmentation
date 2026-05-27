@@ -70,7 +70,7 @@ vis_backends = [
         type="IterStepWandbVisBackend",
         init_kwargs=dict(
             project=_os.environ.get("WANDB_PROJECT", "simba-cityscapes"),
-            name=_os.environ.get("WANDB_RUN_NAME", "simba-l_segformer_40k_cityscapes-512x1024"),
+            name=_os.environ["WANDB_RUN_NAME"],
             tags=["simba", "segformer", "cityscapes"],
         ),
     ),
