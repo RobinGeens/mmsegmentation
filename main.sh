@@ -33,13 +33,20 @@ RUN_NAME="simba-l_segformer512_4xb2-120k_cityscapes-512x1024"
 #   continue — Resume the latest checkpoint inside this config's own
 #              work_dir, restoring optimizer + scheduler + iter counter.
 #              Automatically discovers the latest checkpoint in work_dir.
-MODE="seed"
+MODE="continue"
 
 # Used only when MODE=seed.
 SEED_CKPT="work_dirs/simba-l_segformer512_4xb2-40k_cityscapes-512x1024/iter_40000.pth"
 # Used only when MODE=backbone
 SIMBA_CKPT_NAME="exp_approx/checkpoint-317.pth.tar"
 PRETRAIN_NAME="exp_approx_317_backbone.pth"
+
+# Eval sliding-window settings. stride=crop means no overlap.
+EVAL_CROP="512,1024"
+# EVAL_CROP="1024,2048"
+# EVAL_STRIDE="512,1024" # 0% overlap
+EVAL_STRIDE="384,768" # 25% overlap
+# EVAL_STRIDE="1024,2048"
 
 # --- Config end ---
 
@@ -150,8 +157,11 @@ case "$cmd" in
                 exit 1
             fi
         fi
-        echo "[eval] config=$CONFIG  ckpt=$ckpt"
-        "$PYTHON" tools/test.py "$CONFIG" "$ckpt"
+        echo "[eval] config=$CONFIG  ckpt=$ckpt  (slide crop=${EVAL_CROP} stride=${EVAL_STRIDE})"
+        WANDB_MODE=disabled "$PYTHON" tools/test.py "$CONFIG" "$ckpt" \
+            --cfg-options "model.test_cfg.mode=slide" \
+                          "model.test_cfg.crop_size=[${EVAL_CROP}]" \
+                          "model.test_cfg.stride=[${EVAL_STRIDE}]"
         ;;
 
     *)

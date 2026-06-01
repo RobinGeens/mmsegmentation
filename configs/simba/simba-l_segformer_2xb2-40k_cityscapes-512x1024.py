@@ -19,8 +19,6 @@ model = dict(
         autocast_dtype="bf16",
     ),
     decode_head=dict(in_channels=[96, 192, 384, 512], num_classes=19),
-    # Slide eval: whole-image inference would take too many tokens. Feed 512x1024 image in chunks of 384x768.
-    test_cfg=dict(mode="slide", crop_size=crop_size, stride=(384, 768)),
 )
 
 # AdamW with linear-warmup poly schedule, decoder LR > backbone LR. The
